@@ -208,6 +208,70 @@ func TestDisplayPrettyList_RootedParentChildCycleTerminates(t *testing.T) {
 	}
 }
 
+// The --deps arm of the guard: dependency annotations belong to an ancestor's
+// first appearance, never to the marked cycle line. Every other case here runs
+// with dr == nil, so nothing would redden if a later edit moved the onPath
+// check below dr.annotationsFor or outside the set/delete pair around the
+// recursion. bd-a carries a non-hierarchy edge on purpose: parent-child edges
+// never annotate (depEdgeDisplay), so without one there would be no annotation
+// to misplace and the assertion would hold vacuously.
+func TestDisplayPrettyListWithDepsMode_CycleMarkerCarriesNoAnnotations(t *testing.T) {
+	r := cycleTestIssue("bd-r", "root", "epic")
+	a := cycleTestIssue("bd-a", "alpha", "epic")
+	b := cycleTestIssue("bd-b", "beta", "epic")
+	x := cycleTestIssue("bd-x", "blocker", "task")
+	issues := []*types.Issue{r, a, b, x}
+	allDeps := map[string][]*types.Dependency{
+		"bd-a": {
+			{IssueID: "bd-a", DependsOnID: "bd-r", Type: types.DepParentChild},
+			{IssueID: "bd-a", DependsOnID: "bd-b", Type: types.DepParentChild},
+			{IssueID: "bd-a", DependsOnID: "bd-x", Type: types.DepBlocks},
+		},
+		"bd-b": {
+			{IssueID: "bd-b", DependsOnID: "bd-a", Type: types.DepParentChild},
+		},
+	}
+
+	out, terminated := captureBoundedStdout(t, func() {
+		displayPrettyListWithDepsMode(issues, false, allDeps, "all", false, false, "", "", false)
+	})
+	if !terminated {
+		t.Fatalf("bd list --tree --deps did not return within %v on a parent-child cycle; first output:\n%s", captureDeadline, head(out, 20))
+	}
+
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	marked := -1
+	for i, line := range lines {
+		if !strings.Contains(line, treeCycleMarker) {
+			continue
+		}
+		if marked >= 0 {
+			t.Fatalf("expected exactly one cycle marker, found a second on line %d:\n%s", i+1, out)
+		}
+		marked = i
+	}
+	if marked < 0 {
+		t.Fatalf("expected the cycle marker on bd-a's repeat under bd-b:\n%s", out)
+	}
+	if !strings.Contains(lines[marked], "bd-a") {
+		t.Fatalf("the marker belongs to the ancestor bd-a:\n%s", out)
+	}
+	if marked+1 < len(lines) && strings.Contains(lines[marked+1], depGlyph) {
+		t.Fatalf("the marked line must not be followed by its dependency annotations:\n%s", out)
+	}
+	// The trailing legend carries depGlyph too, so count annotation rows by
+	// their target rather than by the glyph alone.
+	annotations := 0
+	for _, line := range lines {
+		if strings.Contains(line, depGlyph) && strings.Contains(line, "bd-x") {
+			annotations++
+		}
+	}
+	if annotations != 1 {
+		t.Fatalf("bd-a's depends-on row must render exactly once, under its first appearance, got %d:\n%s", annotations, out)
+	}
+}
+
 func head(s string, n int) string {
 	lines := strings.SplitN(s, "\n", n+1)
 	if len(lines) > n {

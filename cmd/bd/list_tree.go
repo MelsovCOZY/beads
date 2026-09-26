@@ -145,8 +145,18 @@ func compareIssuesByPriority(a, b *types.Issue) int {
 
 // treeCycleMarker is appended to a tree line whose issue is already an
 // ancestor on the current path. It mirrors the "(shown above)" arm of
-// bd dep tree and names the command that reports the cycle itself.
-const treeCycleMarker = "(cycle: shown above; run bd dep cycles)"
+// bd dep tree but means something narrower: an ancestor of this very line,
+// not any node the walk happened to print earlier.
+//
+// It names the edge class rather than a command to run. childrenMap is built
+// from parent-child edges alone, so every cycle this marker can fire on is a
+// parent-child cycle — and no command reports that class today: bd dep cycles
+// and bd doctor both walk the blocking graph (DetectCycles uses
+// AppendBlockingGraphInTx deliberately; see issueops/cycles.go), which admits
+// blocks and conditional-blocks only. Sent there, the reader gets an
+// affirmative "No dependency cycles detected" for the very store that just
+// produced this line. Cite a command here only once one can see these edges.
+const treeCycleMarker = "(cycle: shown above; parent-child cycle in stored edges)"
 
 // printPrettyTree recursively prints the issue tree.
 // Children use the requested list order. With --deps, dependency order takes
